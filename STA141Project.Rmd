@@ -1,0 +1,211 @@
+---
+title: "STA141Aproject"
+author: "Franklin Hong"
+date: "2023-06-06"
+output: html_document
+---
+
+
+```{r, echo = FALSE}
+
+library(ggplot2)
+library(readr)
+library(tidyverse)
+library(stats)
+library(class)
+library(dplyr)
+
+```
+
+# Predicting the Outcome of Mice Behavior Using Stimuli, Analysis of Brain Data, and Predictive Modeling
+
+# Abstract
+
+The primary objective of this project is to build a predictive model to predict the outcome (i.e., feedback type) of each trial using the neural activity data (i.e., spike trains in spks), along with the stimuli (the left and right contrasts). To do so, we explore the given data such as the neurons within mice, spikes in relation with time bins, and such. We integrate data using a PCA model and use our findings to creative a predictive model using a kNN model.
+
+# Section 1 Introduction. Introduce the objective and briefly review the background of this data set.
+
+We are presented with research (Steinmetz et al., 2019) that provides an analysis of the neural activity of four mice. The analysis is based on mice turning a wheel in accordance with a visual stimulus or contrasting stimuli. The feedback (1 or -1) either rewards or punishes the mice depending on whether or not they turned the wheel in the correct direction.
+
+# Section 2 Exploratory analysis.
+
+The given article defines 6 variables used to conduct the experiment:
+
+feedback_type: type of the feedback, 1 for success and -1 for failure
+
+contrast_left: contrast of the left stimulus
+
+contrast_right: contrast of the right stimulus
+
+time: centers of the time bins for spks
+
+spks: number of spikes of neurons in the visual cortex in time bins defined in time
+
+brain_area: area of the brain where each neuron lives
+
+```{r, echo = FALSE} 
+# number of trials in each session
+session=list()
+# each session
+for (i in 1:18){
+  session[[i]]=readRDS(paste('session',i,'.rds',sep=''))
+  num.neurons <- nrow(session[[i]]$spks[[1]])
+  num.trials <- length(session[[i]]$feedback_type)
+  cat("Session", i,"--", num.neurons, "neurons and", num.trials, "trials.\n")
+  # ^prints session number and number of trials in each session
+}
+```
+
+We can see that within all 18 sessions, there are a varying number of neurons nearing the thousands and around 200 to 450 trials excluding Session 1, where there are only 114 trials. Note that for each trial in a session, the number of neurons stay the same. Each session carries a differing amount of neurons.
+
+```{r, echo = FALSE}
+
+mice.names <- c("Cori", "Frossman", "Hence", "Lederberg")
+neurons.mice <- sapply(mice.names, function(m) sum(sapply(session, function(s) s$mouse_name == m)))
+trials.mice <- sapply(mice.names, function(m) sum(sapply(session, function(s) s$mouse_name == m)))
+
+barplot(neurons.mice, names.arg = mice.names, xlab = "Mouse", ylab = "Neurons", main = "Neurons in Mice")
+
+barplot(trials.mice, names.arg = mice.names, xlab = "Mouse", ylab = "Trials", main = "Number of Trials in Mice")
+
+```
+The first bar graph shows the number of neurons in each mice. Across the x-axis the mouse and the y-axis is the corresponding amount of neurons for each mouse. We observe that Cori has 3 neurons while Lederberg has 7.
+
+The second bar graph is the number of trials in each mouse, with the x-axis again being the mouse and the y-axis the corresponding trials. Cori has 3, while Lederberg has 7.
+
+Interestingly, the two bar graphs above show that there is insignificant or no data regarding the two mice Frossman and Hence. Lederberg has double the neurons and trials as Cori.
+
+```{r}
+# View data and variables
+
+# feedback_type <- session[[5]]$feedback_type[[11]]
+# contrast_left <- session[[5]]$contrast_left[[11]]
+# contrast_right <- session[[5]]$contrast_right[[11]]
+# time <- session[[5]]$time
+# spks <- session[[5]]$spks[[11]]
+# brain_area <- session[[5]]$brain_area
+# print(session[[5]]$feedback_type)
+```
+
+
+
+```{r, echo = FALSE}
+
+asekfjee = function(session = session[[5]], specify_length = FALSE, len = 1) {
+  iteration = ifelse(specify_length, len, (length(session$spks) - 240))
+  for (i in 1:iteration) {
+    trial = session$spks[[i]]
+    image(trial, xlab = paste("total rows:",nrow(trial)), ylab = paste("total columns:", ncol(trial)))
+    cat("trial:", i, "feedback_type:", session$feedback_type[i], "contrast_left:", session$contrast_left[i], "contrast_right:", session$contrast_right[i], "\n" )
+  }
+}
+asekfjee(session[[5]], specify_length = FALSE)
+
+```
+
+These 10 graphs represent the first 10 trials of Session 5. On the x-axis just under 0.2, which represents neurons, we see a persisting line parallel to the y-axis. This means that when stimulated, certain neurons consistently fire off within a session.
+
+# Section 3 Data integration.
+
+```{r}
+# PCA
+
+spks.pca <- session[[5]]$spks[[11]] %>% prcomp(center = TRUE, scale = TRUE)
+plot(spks.pca, type = "lines")
+spks.pca4 = spks.pca$x[, 4]
+spks.pca4
+```
+
+The line plot compares the PCA to their variances. For the sake of our matrix for kNN testing, we will be utilizing PCA4 as it has the least slope when also observing the variance of its neighbors PC3 and PC5.
+
+# Section 4 Predictive modeling.
+
+```{r}
+#PCA -> kNN testing
+
+feedback.1.trial = data.frame()
+feedback.1.not.trial = data.frame()
+for (i in 10){
+  session[[i]]=readRDS(paste('session',i,'.rds',sep=''))
+  for (j in 1:length(session[[i]]$contrast_left)){
+    spks.pca <- prcomp(session[[i]]$spks[[j]], center = TRUE, scale = TRUE)
+    spks.pca.rotated <- spks.pca$rotation[,4]
+    row = c(value1 = session[[i]]$feedback_type[j], session[[i]]$contrast_left[j], session[[i]]$contrast_right[j], spks.pca.rotated)
+    if (session[[i]]$feedback_type[j] == 1){
+    feedback.1.trial <- rbind(feedback.1.trial, row)
+    }
+    if (session[[i]]$feedback_type[j] == -1){
+    feedback.1.not.trial <- rbind(feedback.1.not.trial, row)
+    }
+
+
+  }
+}
+column = c("feedback_type", "contrast_left", "contrast_right", paste0("spks", 1:40))
+names(feedback.1.trial) = column
+names(feedback.1.not.trial) = column
+feedback.1.train.data = feedback.1.trial[1:125, ]
+feedback.1.not.train.data = feedback.1.not.trial[1:125, ]
+train.data = rbind(feedback.1.train.data, feedback.1.not.train.data)
+
+feedback.1.test.data = feedback.1.trial[126:170, ]
+feedback.1.not.test.data = feedback.1.not.trial[126:170, ]
+test.data = rbind(feedback.1.test.data, feedback.1.not.test.data)
+
+knn.model.k1 <- knn(train.data, test.data, cl = session[[i]]$feedback_type[1:250], k = 1)
+
+confusion.matrix.1 <- table(session[[i]]$feedback_type[1:length(knn.model.k1)], knn.model.k1)
+misclassification.rate.1 <- 1 - sum(diag(confusion.matrix.1)) / sum(confusion.matrix.1)
+print(misclassification.rate.1)
+```
+
+
+# Section 5 Prediction performance on the test sets.
+
+```{r}
+
+# test.data = data.frame()
+# for (i in 1){
+#   test[[i]]=readRDS(paste('test',i,'.rds',sep=''))
+#   for (j in 1:length(test[[i]]$contrast_left)){
+#     spks.pca <- prcomp(test[[i]]$spks[[j]], center = TRUE, scale = TRUE)
+#     spks.pca.rotated <- spks.pca$rotation[, 2]
+#     row = c(value1 = test[[i]]$feedback_type[j], test[[i]]$contrast_left[j], test[[i]]$contrast_right[j], spks.pca.rotated)
+#     test.data <- rbind(test.data, row)
+#   }
+# }
+# 
+# feedback.1.train.data = feedback.1.trial[1:50, ]
+# feedback.1.not.train.data = feedback.1.not.trial[1:50, ]
+# train.data = rbind(feedback.1.train.data, feedback.1.not.train.data)
+# 
+# 
+# knn_1 <- knn(as.matrix(train_data), as.matrix(test1_data), cl = test[[1]]$feedback_type[1:100], k = 1)
+# 
+# confusion.matrix.1 <- table(session[[i]]$feedback_type[1:length(knn.model.k1)], knn.model.k1)
+# misclassification.rate.1 <- 1 - sum(diag(confusion.matrix.1)) / sum(confusion.matrix.1)
+# print(misclassification.rate.1)
+
+
+```
+
+# Section 6 Discussion.
+
+Our train and test data produced a misclassification rate of 0.467, which means that the model, more often than not, will correctly predict the feedback type that mice produce when given stimuli. We mainly analyzed the data of spks and its relation to other data variables in order to produce our results.
+
+# Acknowledgements
+
+Dr. Chen, Lecture Chapters 9 and 10. ChatGPT. Fellow Student Ethan Park
+
+# sessionInfo
+
+```{r}
+
+sessionInfo()
+
+```
+
+# Appendix
+
+```{r ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+```
